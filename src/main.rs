@@ -1,7 +1,6 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 use sha2::{Digest, Sha256};
 use ed25519_dalek::{SigningKey, Signature, Signer, VerifyingKey, Verifier};
-use rand::rngs::OsRng;
 use std::convert::TryFrom;
 
 #[derive(Debug, Clone)]
@@ -14,8 +13,8 @@ pub struct Wallet {
 
 impl Wallet {
     pub fn new(owner: String, initial_balance: u64) -> Self {
-        let mut csprng = OsRng;
-        let signing_key = SigningKey::generate(&mut csprng);
+        let secret_key: [u8; 32] = rand::random(); // Generate random bytes
+        let signing_key = SigningKey::from_bytes(&secret_key);
         let verifying_key = signing_key.verifying_key();
 
         Wallet {
@@ -236,7 +235,7 @@ impl Blockchain {
             let hash_input = self.prepare_hash_input(index, timestamp, &transactions, &prev_hash, nonce);
             hash = calculate_hash(&hash_input);
             
-            // Simple proof-of-work: find hash with 4 leading zeros
+            // Simple PoW, hash with 4 leading zeros
             if hash.starts_with("0000") {
                 break;
             }
@@ -325,6 +324,32 @@ fn main() {
     blockchain.register_wallet(alice.clone());
     blockchain.register_wallet(bob.clone());
     blockchain.register_wallet(charlie.clone());
+
+    let funding_tx_alice = Transaction {
+        from_public_key: [0; 32], // System/genesis transaction 
+        to_public_key: alice.public_key_bytes(),
+        amount: 1000, // Alice's init balance
+        timestamp: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
+        signature: None, // sys transactions don't need sig
+    };
+    
+    let funding_tx_charlie = Transaction {
+        from_public_key: [0; 32], 
+        to_public_key: charlie.public_key_bytes(),
+        amount: 500,
+        timestamp: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
+        signature: None,
+    };
+    
+    blockchain.pending_transactions.push(funding_tx_alice);
+    blockchain.pending_transactions.push(funding_tx_charlie);
+    
+    blockchain.mine_pending_transactions(bob.public_key_bytes());
+    
+    println!("Initial wallet balances:");
+    println!("Alice's balance: {}", blockchain.get_wallet_balance(&alice.public_key_bytes()));
+    println!("Bob's balance: {}", blockchain.get_wallet_balance(&bob.public_key_bytes()));
+    println!("Charlie's balance: {}", blockchain.get_wallet_balance(&charlie.public_key_bytes()));
 
     let mut tx1 = Transaction::new(&alice, &bob, 100);
     match tx1.sign(&alice) {
